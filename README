@@ -1,0 +1,29 @@
+====================
+ABOUT
+====================
+
+charset is a c++ template library that allows you to convert data between different character encoding in easy way.
+
+================
+DOCUMENTATION
+================
+
+Refer to DOC file for documentation.
+
+====================
+HOW TO USE
+====================
+
+Simply include "charset.hpp" and link to charset.a or charset.lib based on the compiler you use.
+
+====================
+EXAMPLES
+====================
+
+Refer to TUTOR file, but before doing that make sure to read the documentation to understand how examples work.
+
+====================
+DEVELOPEMENT
+====================
+
+Track development changes at charset.sourceforge.net

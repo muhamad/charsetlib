@@ -1,0 +1,9 @@
+version 1.1:
+	- initial release.
+
+version 1.1.1:
+	- FIX: check UTF-8 against illegal leading bytes.
+	- FIX: remove restriction about writing BOM for UTF-16 and UTF-32,
+		   however they must exist while reading to determine byte order.
+	- UPDATE: improve reading/writing Byte Order Mark
+	- UPDATE: set Makefile all target to build library for all Makefile compilers.

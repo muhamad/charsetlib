@@ -1,0 +1,140 @@
+                      charset library tutorials
+
+In next examples charset.hpp will assumed to be in PATH environment variable
+
+========================
+Unicode example
+========================
+
+#include <iostream>
+using std::cout;
+using std::hex;
+using std::endl;
+
+#include <charset.hpp>
+using charset::unicode;
+using charset::utf8_t;
+using charset::utf16_t;
+using charset::utf32_t;
+
+int main()
+{
+    utf32_t u32   = 0x10FFFF;
+    utf16_t u16   = unicode::to_utf16(u32);
+	utf8_t  u8    = unicode::to_utf8(u16);
+    utf32_t u32_2 = unicode::to_utf32(u8);
+
+	cout << "UTF-32 value of 10FFFF: " << hex << u32 << endl;
+
+	cout << "UTF-16 value of 10FFFF: ";
+	for(int i=0; i<u16.count; ++i) 	cout << hex << u16[i] << ' ';
+	cout << endl;
+
+	cout << "UTF-8 value of 10FFFF: ";
+	for(int i=0; i<u8.count; ++i) 	cout << hex << (unsigned)u8[i] << ' ';
+	cout << endl;
+
+	cout << "UTF-32 value of 10FFFF: " << hex << u32_2 << endl;
+}
+
+// Examples Result
+UTF-32 value of 10FFFF: 10ffff
+UTF-16 value of 10FFFF: dbff dfff
+UTF-8 value of 10FFFF: f4 8f bf bf
+UTF-32 value of 10FFFF: 10ffff
+
+========================
+Character-set example
+========================
+
+#include <iostream>
+using std::cout;
+using std::hex;
+using std::endl;
+
+#include <charset.hpp>
+using charset::ccp_t;
+using charset::utf32_t;
+using charset::iso8859_1;
+using charset::oem863;
+
+int main()
+{
+    ccp_t e_hat = 202; // upper e hat code-point in ISO/IEC 8859-1
+    utf32_t u32 = iso8859_1::convert_to_utf32(e_hat);
+
+	ccp_t e_hat_2 = oem863::convert_to_charset(u32);
+	utf32_t u32_2 = oem863::convert_to_utf32(e_hat_2);
+
+	ccp_t e_hat_3 = iso8859_1::convert_to_charset(u32_2);
+
+	cout << "Codepoint of upper E-hat in ISO/IEC 8859-1: " << hex << e_hat << endl;
+	cout << "UTF-32 of upper E-hat from ISO/IEC 8859-1: " << hex << u32 << endl;
+
+	cout << "Codepoint of upper E-hat in OEM-863: " << hex << e_hat_2 << endl;
+	cout << "UTF-32 of upper E-hat from OEM-863: " << hex << u32_2 << endl;
+
+	cout << "Codepoint of upper E-hat in ISO/IEC 8859-1 from OEM-863 through UTF-32: " << hex << e_hat_3 << endl;
+}
+
+// Examples Result
+Codepoint of upper E-hat in ISO/IEC 8859-1: ca
+UTF-32 of upper E-hat from ISO/IEC 8859-1: ca
+Codepoint of upper E-hat in OEM-863: 92
+UTF-32 of upper E-hat from OEM-863: ca
+Codepoint of upper E-hat in ISO/IEC 8859-1 from OEM-863 through UTF-32: ca
+
+
+========================
+Conversion example
+========================
+
+// In this example we assume that there is file with French text names 'fr.txt'
+// in application directory which written using 'Windows-1252' code page. the application
+// will produce a file with the name 'fr2.txt' with same content in UTF-16 Big Endian
+
+#include <fstream>
+#include <iostream>
+using std::ifstream;
+using std::ofstream;
+using std::cout;
+using std::endl;
+
+#include <charset.hpp>
+using charset::windows1252;
+using charset::conversion::utf16_charset;
+using charset::conversion:;basic_converter;
+
+const char* state_message[] =
+{
+    "conversion completed without errors.",
+	"end of file reached where data expected.",
+	"can not write into stream.",
+	"can not read from stream.",
+	"lookahead is not supported in input stream.",
+	"the UTF-16 BOM in input stream is invalid.",
+	"the UTF-32 BOM in input stream is invalid.",
+	"invalid UTF-8 byte found in input stream.",
+	"invalid UTF-16 surrogate found in input stream.",
+	"a Unicode code-point that exceeds 0x10FFFF has been found.",
+	"a UTF-16 surrogate code-point found in UTF-32 input stream.",
+	"a character-set code-point is beyond character-set limits.",
+	"input/output character-set didn't define such code-point.",
+	"input/output code-point is valid in character-set but it's not defined in Unicode."
+};
+
+int main()
+{
+	typedef basic_converter<windows1252, utf16_charset> wtu;
+
+	ifstream ifs("fr.txt");
+	// if stream didn't open in binary mode OS may translate some byte and the result content
+	// will be obfuscated.
+	ofstream ofs("fr2.txt", std::ios_base::binary);
+
+	wtu c(ifs, ofs, false);
+	c.run();
+
+	if (c.failed()) cout << "Conversion failed with reason: ";
+	cout << state_message[ c.state() ] << endl;
+}

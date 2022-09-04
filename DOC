@@ -1,0 +1,448 @@
+                         charset library documentation
+
+===========================
+Introduction
+===========================
+
+The goal from charset is to convert between different character sets, with Unicode in the middle.
+to achieve these goals the library had divided into 4 categories;
+
+   1- Helper types/function that all other library use it.
+   2- Unicode functions that convert between UTF-8 -16 -32 and each other.
+   3- Character set implementation that define the characteristics of it.
+   4- Character set conversion between any two Character sets.
+
+there is 3 namespaces in charset
+   1- charset: is the main namespace that contain all defined character sets
+   2- conversion: that define types used to convert between character sets
+   3- csi: shortuct to charset-internals which exist inside charset namespace and
+           define all internal types used by the library.
+
+===========================
+Helper types
+===========================
+
+Helper types are used are used in entire library.
+
+In helper/types.hpp you will find synonyms of fundamental types that used frequently in charset. next 
+types defined in charset namespace.
+
+   cs_int8  : is typedef for signed char
+   cs_uint8 : is typedef for unsigned char
+   cs_int16 : is typedef for signed short int
+   cs_uint16: is typedef for unsigned short int
+   cs_int32 : is typedef for signed int
+   cs_uint32: is typedef for unsigned int
+
+In helper/array.hpp a definition of template array class, this class exist in csi namespace.
+
+   template<typename T, int size>
+   struct array
+   {
+       static const int count = size;
+       T e[size];
+
+       T& operator[](int i) { return e[i]; }
+       T operator[](int i) const { return e[i]; }
+   };
+
+In helper/codepoint.hpp a definition of code_point template class the used to define Unicode\multi-byte
+code point, this class exist in csi namespace.
+
+   template<typename T, int len>
+   struct code_point
+   {
+       typedef T code_unit;
+       typedef code_point<T, len> type;
+       static const cs_int32 max_units = len;
+
+       cs_int32 count; // number of occupied code-units
+       union
+       {
+           T  units[len]; // code-point units
+           cs_uint32 all;  // all code-units as unsigned integer
+       };
+
+       inline code_point();
+       inline code_point(const T& value);
+
+       inline T& operator[](int index);
+       inline T operator[](int index) const;
+
+       inline operator cs_uint32() const;
+
+       inline type& operator=(const cs_uint32& value);
+   };
+
+The code_point class represent multiple code-unit code-point where T is the code-unit type and
+len is the maximum number of code-units.
+
+Note that total size of units must always equal size of cs_uint32. the parameter constructor used to initialize
+code_point with single code-unit and update count to 1.
+
+The subscript operator allows code-units to get accessed and/or modified using array style. the assignment 
+operator sets the value of the member all and reset the count to zero.
+
+In helper/helper.hpp a definition of various important types, these types defined in charset namespace.
+
+   ncp_t: is a typedef of char and it's stand for narrow code-point.
+   ccp_t: is a typedef of cs_uint32 and it's stand for character-set code-point.
+
+   cu8_t : is a typedef of cs_uint8 and it's stand for code-unit-8. this is the UTF-8 underlying type.
+   cu16_t: is a typedef of cs_uint16 and it's stand for code-unit-16. this is the UTF-16 underlying type.
+   cu32_t: is a typedef of cs_uint32 and it's stand for code-unit-32. this is the UTF-32 underlying type.
+
+   utf8_t : is a typedef of csi::code_point with cu8_t as underlying type and 4 as maximum number of code-units.
+   utf16_t: is a typedef of csi::code_point with cu16_t as underlying type and 2 as maximum number of code-units.
+   utf32_t: is a typedef of cu32_t, because UTF-32 have one code-unit only.
+
+   struct helper
+   {
+       static const cs_int32 max_unicode_cp;
+       static const cs_int32 max_charset_cp;
+       static const cu16_t u16_lo_surrogate;
+       static const cu16_t u16_lo_surrogate_end;
+       static const cu16_t u16_hi_surrogate;
+       static const cu16_t u16_hi_surrogate_end;
+       static const cu16_t u16_surrogate_min;
+       static const cu16_t u16_surrogate_max;
+       static const cs_uint32 not_defined_in_charset;
+       static const cs_uint32 not_defined_in_unicode;
+       static const cs_int32 invalid;
+
+       template<typename T, int size>
+       inline static cs_int32 find_index(const T& value, const T (&list)[size]);
+
+       template<typename T, int size>
+       inline static bool is_in(const T& value, const T (&list)[size]);
+
+       template<typename T>
+       inline static T not_defined(const cs_uint32 value = not_defined_in_unicode);
+   };
+
+The helper class contains important constant that used by most library where:
+
+   max_unicode_cp: the maximum value of a Unicode code-point.
+   max_charset_cp: the maximum value of a character-set code-point.
+
+   u16_lo_surrogate    : is UTF-16 low-surrogate start value which map to 0xD800
+   u16_lo_surrogate_end: is UTF-16 low-surrogate end value which map to 0xDBFF
+   u16_hi_surrogate    : is UTF-16 high-surrogate start value which map to 0xDC00
+   u16_hi_surrogate_end: is UTF-16 high-surrogate end value which map to 0xDFFF
+
+   u16_surrogate_min: is UTF-16 minimum surrogate value which map to 0xD800
+   u16_surrogate_max: is UTF-16 maximum surrogate value which map to 0xDFFF
+
+   not_defined_in_charset: this value when returned by a function states that this code-point 
+                           not implemented in character-set map.
+   not_defined_in_unicode: this value when returned by a function states that this code-point 
+                           not defined in Unicode.
+
+   invalid: is a value used to states that a value not found or an operation failed to complete.
+
+   find_index: is a template function in which you pass a value and an array and it return the 
+               location of input value of helper::invalid if value not found.
+
+   is_in: is a template function in which you pass a value and an array and it return true if
+          input value is exist in input array, and false if input value not found in input array.
+
+   not_defined: is a function you pass a code_point class initiation and a helper::not_defined_in_*
+                and it return an object of input type with such value
+
+===========================
+Unicode conversion
+===========================
+
+In Unicode/Unicode.hpp you will find the struct 'unicode' with many functions to act on utf8_t, utf16_t,
+utf32_t and their code-unit type. this type exist in charset namespace.
+
+struct unicode
+{
+	static utf8_t to_utf8(const utf16_t& cp);
+	static utf8_t to_utf8(const utf32_t& cp);
+
+	static utf8_t to_utf8(const cu8_t* stm);
+	static utf8_t to_utf8(const cu8_t* stm, cs_int32 at);
+
+	static utf16_t to_utf16(const utf8_t& cp);
+	static utf16_t to_utf16(const utf32_t& cp);
+
+	static utf16_t to_utf16(const cu16_t* stm);
+	static utf16_t to_utf16(const cu16_t* stm, cs_int32 at);
+
+	static utf16_t to_utf16(const char* stm);
+	static utf16_t to_utf16(const char* stm, bool is_big);
+	static utf16_t to_utf16(const char* stm, cs_int32 at, bool is_big);
+
+	static utf32_t to_utf32(const utf8_t& cp);
+	static utf32_t to_utf32(const utf16_t& cp);
+
+	static utf32_t to_utf32(const char* stm);
+	static utf32_t to_utf32(const char* stm, bool is_big);
+	static utf32_t to_utf32(const char* stm, cs_int32 at, bool is_big);
+
+	static cs_int32 get_utf8_size(const cu8_t& cp);
+	static cs_int32 get_utf16_size(const cu16_t& cp);
+
+	static bool in_unicode_range(const utf8_t& cp);
+	static bool in_unicode_range(const utf16_t& cp);
+	static bool in_unicode_range(const utf32_t& cp);
+
+	static bool is_valid_seq(const utf8_t& cp);
+	static bool is_valid_seq(const utf16_t& cp);
+
+	static bool is_utf16_reserved(const utf8_t& cp);
+	static bool is_utf16_reserved(const utf32_t& cp);
+};
+
+All the functions with the name to_utfxx convert the input to desired type, the called function 
+validate input value for not_defined_in_unicode value and its own type ONLY which means to_utf32
+will not check if input utf16_t value contain invalid sequence, the reason for this behaviour is
+  1. you have validation function you can use if you want.
+  2. it will slow things down.
+  3. most of time input code-points used by the library the get passed here are valid.
+
+   get_utf8_size: return number of code-units in utf8_t value which input code-unit is the first of it, or
+                  return helper::invalid for invalid code-unit.
+   get_utf16_size: return number of code-units in utf16_t value which input code-unit is the first of it, or
+                  return helper::invalid for invalid code-unit.
+
+   in_unicode_range: return true if input code-point is in Unicode valid code-point range.
+   is_valid_seq: check the input code-point sequence and return true if it's valid, otherwise false.
+
+   is_utf16_reserved: check if input utf8_t/utf32_t code-point in UTF-16 reserved surrogate range.
+
+===========================
+charset implementation
+===========================
+
+There is no charset base class, however there is character set interface you should define if you want
+your class to used side-by-side with the rest of the library.
+
+the interface have the following members
+
+interface charset
+{
+	static const cs_int32 char_count;
+	static const bool ascii_compatible;
+	static const bool is_multibyte;
+	static const bool have_unused_chars;
+	static const bool have_undefined_unicode_chars;
+
+	static const char* get_name();
+	static const char* get_description();
+
+	static bool is_defined(const ncp_t&);
+	static bool is_defined(const ccp_t&);
+
+	static bool is_charset_undefined(const ncp_t&);
+	static bool is_charset_undefined(const ccp_t&);
+
+	static bool is_unicode_undefined(const ncp_t&);
+	static bool is_unicode_undefined(const ccp_t&);
+
+	static bool unicode_in_charset(const utf8_t&);
+	static bool unicode_in_charset(const utf16_t&);
+	static bool unicode_in_charset(const utf32_t&);
+
+	static ccp_t convert_to_charset(const utf8_t&);
+	static ccp_t convert_to_charset(const utf16_t&);
+	static ccp_t convert_to_charset(const utf32_t&);
+
+	static utf8_t convert_to_utf8(const ncp_t&);
+	static utf8_t convert_to_utf8(const ccp_t&);
+
+	static utf16_t convert_to_utf16(const ncp_t&);
+	static utf16_t convert_to_utf16(const ccp_t&);
+
+	static utf32_t convert_to_utf32(const ncp_t&);
+	static utf32_t convert_to_utf32(const ccp_t&);
+};
+
+all the function of the interface are static members, some are static constants, others are static functions
+
+   char_count: set to the total number of all defined characters in a character set.
+   ascii_compatible: set to true if the code-point from 0 to 127 map to US-ASCII.
+   is_multibyte: set to true if character set is a multi-byte character set.
+   have_unused_chars: set to true if character set have unused characters in its map.
+   have_undefined_unicode_chars: set to true if character set have character that don't defined in Unicode.
+
+   get_name: return character set name as US-ASCII null-terminated string.
+   get_description: return character set description as US-ASCII null-terminated string.
+
+   is_defined: return true if input character-set code-point is allocated in the map and defined in Unicode.
+   is_charset_undefined: return true if input character-set code-point is not allocated in the map.
+   is_unicode_undefined: return true if input character-set code-point is allocated but don't have a Unicode equivalent.
+   unicode_in_charset: return true if input Unicode code-point has an equivalent character in character-set map.
+
+   convert_to_charset: convert input Unicode code-point to character-set code-point and return it. if input Unicode
+                       code-point has no equivalent it return helper::not_defined_in_charset, otherwise a valid
+                       code-point in range 0 to helper::max_charset_cp
+
+   convert_to_utfx: convert input character-set code-point to UTF-8 -16 or -32. if input code-point is out of character-set
+                    range or don't have equivalent character it returns helper::not_defined_in_unicode, otherwise a valid
+                    Unicode code-point in range 0 to helper::max_unicode_cp.
+
+In encoding/us-ascii.hpp there is a definition for US-ASCII character-set.
+
+In encoding/iso8859.hpp and encoding/imp/iso8859.cpp there is a definition for the following code-pages:
+ISO/IEC 8859-1    ISO/IEC 8859-2    ISO/IEC 8859-3    ISO/IEC 8859-4    ISO/IEC 8859-5    ISO/IEC 8859-6
+ISO/IEC 8859-7    ISO/IEC 8859-8    ISO/IEC 8859-9    ISO/IEC 8859-10   ISO/IEC 8859-11   ISO/IEC 8859-13
+ISO/IEC 8859-14   ISO/IEC 8859-15
+
+In encoding/oem.hpp and encoding/imp/oem.cpp there is a definition for the following code-pages:
+OEM-437    OEM-667    OEM-720    OEM-737    OEM-775    OEM-850    OEM-852    OEM-855    OEM-857
+OEM-858    OEM-860    OEM-861    OEM-862    OEM-863    OEM-864    OEM-865    OEM-866    OEM-867
+OEM-869    OEM-MIK    OEM-Iran
+
+In encoding/windows.hpp and encoding/imp/windows.cpp there is a definition for the following code-pages:
+Windows-1250    Windows-1251    Windows-1252    Windows-1253    Windows-1254    Windows-1255
+Windows-1256    Windows-1257    Windows-1258
+
+All the above implemented code pages defined in two levels, the first is through the class common_charset
+which define all the interface except for those ho returns const char* and the static constants, then the
+class code_page_x which inherit from common_charset and define the static constant and implement helper
+functions to charset public interface, finally all code pages inherit from code_page_x and implement
+the get_name and get_description static functions.
+
+The class common_charset is a template class defined in encoding/common.hpp
+The class code_page_x is a template class defined in encoding/code_page_x.hpp
+
+===========================
+charset conversion
+===========================
+
+The final layer is the conversion layer which allows you to convert between different character-sets. this layer
+exist in charset::conversion namespace and it contains the following types:
+
+   1. states enumeration
+   2. Unicode character-set tag classes.
+   3. charset_map class
+   4. basic_converter class.
+
+The states enumeration used to provide the state of conversion after completion, it defined in convert/states.hpp 
+and it have the following members:
+
+   OK: the conversion completed without errors.
+   UnexpectedEndOfFile: end of file reached while expecting certain data.
+   WriteError: can not write to basic_ostream class.
+   ReadError: can not read from basic_istream class.
+   NoUnget: the function basic_istream.unget is unsupported.
+   InvalidUTF16BOM: the byte order mark in UTF-16 basic_istream is invalid.
+   InvalidUTF32BOM: the byte order mark in UTF-32 basic_istream is invalid.
+   InvalidUTF8Byte: invalid UTF-8 byte found in stream.
+   InvalidUTF16Surrogate: invalid UTF-16 surrogate found in stream.
+   OutOfRangeUnicodeCodePoint: a Unicode code-point that exceeds 0x10FFFF has been found.
+   UTF32InUTF16ReservedArea: a UTF-16 surrogate code-point found in UTF-32 stream.
+   OutOfRangeCharsetCodePoint: a character-set code-point is beyond character-set limits.
+   CodePointNotDefinedInCharset: input/output character-set didn't define such code-point.
+   CodePointNotDefinedInUnicode: input/output code-point is valid in character-set but it is not defined in Unicode.
+
+Each character-set have its own class except Unicode Transformation Formats (UTF) so we defined tag classes in 
+convert/unicode_tags.hpp for UTF classes:
+
+struct utf8_charset;
+struct utf16_charset;
+struct utf32_charset;
+
+These tag classes doesn't have character-set interface they are defined ONLY to allow streams that have Unicode data 
+to be used as source or destination streams.
+
+The charset_map class is used during conversion between two non-Unicode character-sets to map ones character to another,
+it defined in convert/charset_map.hpp and its declaration is:
+
+   template<typename ICS, typename OCS, bool ics_tag, bool ocs_tag, bool ics_mb, bool ocs_mb>
+   struct charset_map;
+   {
+       charset_map();
+
+       bool may_fail() const;
+
+       ccp_t operator[](const ncp_t&) const;
+       ccp_t operator[](const ccp_t&) const;
+   };
+
+The charset_map takes an input character-set through ICS argument and and output character-set through OCS argument,
+then the it sets the value of the following arguments according to ICS and OCS:
+
+   ics_tag: will be true if ICS is a tag class, false for normal character-set class.
+   ocs_tag: will be true if OCS is a tag class, false for normal character-set class.
+   ics_mb: if ICS is tag class then this argument is false, otherwise it will be the value of ICS::is_multibyte.
+   ocs_mb: if OCS is tag class then this argument is false, otherwise it will be the value of OCS::is_multibyte.
+
+These four arguments take their values by default and there is no need to pass them.
+
+The charset_map define the following functions:
+
+    constructor: a default constructor that takes no arguments.
+    may_fail: return true if conversion between input and output character-set may fail, otherwise false.
+    subscript operator: takes input character-set code-point of type ncp_t/ccp_t and return output character-set
+                        code-point of type ccp_t, if if the there is no mapping it return helper::not_defined_in_charset.
+
+charset have default implementation for charset_map between two non-Unicode non-mutlibyte character-sets which work with all
+character-sets defined by the library.
+
+Finally we have the basic_converter manager class the do the conversion, this class defined in convert/basic_converter.hpp, and
+it have the following interface:
+
+   template<typename ICS, typename OCS, typename IS, typename OS, bool ics_is_tag, bool ocs_is_tag>
+   struct basic_converter
+   {
+       basic_converter(IS& input, OS& output);
+
+       static bool may_fail();
+
+       OS& run();
+
+       states state() const;
+
+       bool failed() const;
+   };
+
+The basic_converter class takes 6 arguments:
+
+   ICS: the input character-set, also it can be a Unicode tag class.
+   OCS: the output character-set, also it can be a Unicode tag class.
+   IS: the input stream, this argument have std::istream as default value.
+   OS: the output stream, this argument have std::ostream as default value.
+   ics_is_tag: will be true if ICS is a Unicode tag class.
+   ocs_is_tag: will be true if OCS is a Unicode tag class.
+
+the following functions are defined by basic_converter:
+
+   constructor: basic_converter always will have a constructor that takes 2 parameters or more
+                depending on the specialization, but in them all the first and the second parameters
+                are for input and output streams.
+   may_fail: return true if conversion between input and output character-sets may fail because of code-point translation.
+   run: executes the conversion and stops at first error, always return output stream.
+   state: return conversion state, and if it called before conversion it should return OK.
+   failed: if conversion failed for any reason this function should return true, otherwise false.
+
+Note that output stream must be in binary mode or some wrriten bytes will be translated by the OS and the result data will be obfuscated.
+
+charset define basic_converter for basic_istream and basic_ostream with all character-set classes and Unicode tag
+classes with one limitation which is stream underlying character must be of type char otherwise a compile-time error
+will occur for the stream that don't obey the rule.
+
+The specialization of basic_converter have some characteristics:
+
+if input ICS and OCS are non-Unicode character-sets, there is only one constructor for basic_converter:
+   basic_converter(IS& input, OS& output, const charset_map<ICS, OCS>& map);
+where
+   map is object of type charset_map to map between input and output character-sets.
+
+if input ICS and OCS are Unicode tags, the following constructors defined:
+   basic_converter(IS& input, OS& output);
+   basic_converter(IS& input, OS& output, bool ostm_be);
+   basic_converter(IS& input, OS& output, bool ostm_be, bool ostm_bom);
+where
+   ostm_be: emit code-point value in big-endian order, for UTF-8 value of this parameter is ignored.
+   ostm_bom: emit byte order mark in output stream, for UTF-16 and UTF-32 value of this parameter is ignored and
+             byte order mark always emitted.
+
+if ostm_be or ostm_bom are not exist in parameter list then their values are false.
+
+if input ICS is non-Unicode character-set and OCS is a Unicode tag then the above constructors applies here too.
+
+if input ICS is Unicode tag and OCS is non-Unicode character-set, then one constructor defined:
+   basic_converter(IS& input, OS& output);
